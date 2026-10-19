@@ -1,0 +1,17 @@
+.env
+.venv/
+.uv-cache/
+.local-mongodb-data/
+.local-mongodb-logs/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+frontend/dist/
+.idea/
+.vscode/
+*.log
+~$*
