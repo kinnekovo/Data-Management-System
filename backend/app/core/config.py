@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     mongodb_test_database: str = "survey_system_test"
     mongodb_timeout_ms: int = 5000
     frontend_origins: str = "http://localhost:5173"
+    jwt_secret: str = "local-development-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 120
+    max_page_size: int = 100
 
     model_config = SettingsConfigDict(
         env_file=DEFAULT_ENV_FILE,

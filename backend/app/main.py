@@ -7,7 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo.errors import PyMongoError
 
 from app.api.health import router as health_router
+from app.api.auth import router as auth_router
+from app.api.public_surveys import router as public_surveys_router
+from app.api.statistics import router as statistics_router
+from app.api.surveys import router as surveys_router
 from app.core.config import Settings, get_settings
+from app.core.errors import install_exception_handlers
 from app.db.mongo import MongoClientFactory, create_mongo_client, ensure_indexes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -23,6 +28,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         client = mongo_client_factory(app_settings.mongodb_uri, app_settings.mongodb_timeout_ms)
+        app.state.settings = app_settings
         app.state.mongodb_client = client
         app.state.mongodb_database = client[app_settings.mongodb_database]
         try:
@@ -35,18 +41,23 @@ def create_app(
 
     app = FastAPI(
         title=app_settings.app_name,
-        version="0.1.0",
-        description="M1 infrastructure API",
+        version="1.0.0",
+        description="基于 MongoDB 的问卷系统第一阶段 API",
         lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET"],
-        allow_headers=["Accept", "Content-Type"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Accept", "Authorization", "Content-Type"],
     )
+    install_exception_handlers(app)
     app.include_router(health_router, prefix=app_settings.api_prefix)
+    app.include_router(auth_router, prefix=app_settings.api_prefix)
+    app.include_router(surveys_router, prefix=app_settings.api_prefix)
+    app.include_router(public_surveys_router, prefix=app_settings.api_prefix)
+    app.include_router(statistics_router, prefix=app_settings.api_prefix)
     return app
 
 

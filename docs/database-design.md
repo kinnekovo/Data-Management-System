@@ -1,31 +1,96 @@
-# M1 数据库设计
+# MongoDB 数据库设计
 
-M1 只建立连接、集合入口和索引，不写入正式业务数据。完整字段级 MongoDB JSON Schema 校验器将在 M2/M3 模型稳定后实现；当前不能宣称完整 Schema 已落地。
+默认数据库 `survey_system` 包含 `users`、`surveys`、`responses` 三个集合。问卷定义嵌入 `surveys.questions`，答卷独立存放。这样读取和发布一份完整问卷只需单文档操作，同时避免持续增长的答卷把问卷文档推向 MongoDB 16 MB 上限。
 
-默认运行方式已调整为 Windows 本地 MongoDB，连接参数从项目根目录 `.env` 读取，缺省 URI 为 `mongodb://127.0.0.1:27017`，开发数据库仍为 `survey_system`。Docker Compose 只作为可选兼容方式，容器内仍使用 `mongo:27017`；此次调整没有修改集合、字段规划或索引定义。
+MongoDB 适合本项目，因为不同题型的 `validation`、`options` 和 `rules` 字段结构不同，文档模型可以把一次使用时总是一起读取的问卷定义整体保存；新增题型约束不需要频繁拆表迁移。若采用关系模型，题目、选项、规则和不同答案值通常需要多表关联或类型表，强约束更明确，但读取完整问卷和演进异构题型更繁琐。用户、问卷、答卷仍通过 ObjectId 引用，并由应用层权限校验和索引保证本阶段的一致性。
 
-## 集合职责
+## users
 
-| 集合 | 预定职责 | M1 状态 |
-|---|---|---|
-| `users` | 用户名、密码哈希与注册时间 | 仅建立唯一索引 |
-| `surveys` | 一份完整问卷定义，内嵌 `questions[]` 与各题 `rules[]` | 仅建立分享及列表索引 |
-| `responses` | 一次完整答卷，通过 `survey_id` 引用问卷 | 仅建立查询及重复提交保护索引 |
+```json
+{
+  "_id": "ObjectId",
+  "username": "alice",
+  "password_hash": "$argon2id$...",
+  "created_at": "UTC Date"
+}
+```
 
-题目和规则随问卷定义共同读取、共同发布，适合嵌入 `surveys`；答卷会持续增长，必须独立存储，避免问卷文档无限增大。M1 不创建模拟用户、问卷或答卷。
+索引：`username` 唯一。系统只保存 Argon2 哈希，不保存或记录明文密码。
 
-## 已实现索引
+## surveys
 
-| 集合 | 键 | 名称 | 约束/用途 |
-|---|---|---|---|
-| `users` | `{username: 1}` | `ux_users_username` | 唯一用户名 |
-| `surveys` | `{slug: 1}` | `ux_surveys_slug` | 唯一分享标识 |
-| `surveys` | `{owner_id: 1, created_at: -1}` | `ix_surveys_owner_created` | 用户问卷列表 |
-| `responses` | `{survey_id: 1, submitted_at: -1}` | `ix_responses_survey_submitted` | 答卷查询与统计 |
-| `responses` | `{submission_guard: 1}` | `ux_responses_submission_guard` | 唯一且仅索引字段类型为字符串的文档 |
+```json
+{
+  "_id": "ObjectId",
+  "owner_id": "ObjectId(users)",
+  "slug": "公开随机标识",
+  "title": "课程体验调查",
+  "description": "...",
+  "allow_anonymous": false,
+  "allow_multiple_submissions": false,
+  "status": "draft | published | closed",
+  "expires_at": null,
+  "schema_version": 1,
+  "definition_version": 1,
+  "questions": [
+    {
+      "id": "q_xxx",
+      "type": "single_choice | multiple_choice | text | number",
+      "title": "...",
+      "required": true,
+      "options": [{"id":"opt_xxx","label":"..."}],
+      "validation": {},
+      "rules": [{
+        "priority": 1,
+        "operator": "eq",
+        "value": "opt_xxx",
+        "target_question_id": "q_yyy"
+      }]
+    }
+  ],
+  "created_at": "UTC Date",
+  "updated_at": "UTC Date",
+  "published_at": "UTC Date | null",
+  "closed_at": "UTC Date | null"
+}
+```
 
-最后一项使用 `partialFilterExpression: {submission_guard: {$type: "string"}}`，所以未来允许重复填写时省略该字段，不会因多个缺失值触发唯一冲突。`ensure_indexes()` 使用固定名称，可重复执行。
+索引：`slug` 唯一，`{owner_id:1, updated_at:-1}`。题目与选项采用稳定随机 ID，重排时 ID 不变，因此答卷、规则和统计不会依赖数组位置。当前阶段发布后冻结定义，`definition_version` 仍写入每份答卷，为后续版本演进保留一致性边界。
 
-## Smoke check 安全边界
+## responses
 
-`python -m app.db.smoke_check` 只连接 `MONGODB_TEST_DATABASE`，且数据库名必须以 `_test` 结尾。它执行 `ping`、建立并核对上述 5 个索引，在 `_m1_smoke` 中插入带随机 token 的临时文档，读回后在 `finally` 中按 token 删除。连接失败或尚未插入时不会执行删除，也不使用 `dropDatabase`、`dropCollection` 或无条件删除。
+```json
+{
+  "_id": "ObjectId",
+  "survey_id": "ObjectId(surveys)",
+  "respondent_id": "ObjectId(users)",
+  "definition_version": 1,
+  "answers": [
+    {"question_id":"q_xxx","value":"opt_xxx"},
+    {"question_id":"q_yyy","value":["opt_a","opt_b"]},
+    {"question_id":"q_zzz","value":88}
+  ],
+  "submission_guard": "<survey_id>:<respondent_id> | null",
+  "submitted_at": "UTC Date"
+}
+```
+
+索引：
+
+- `{survey_id:1, submitted_at:-1}`：创建者分页查看答卷；
+- `{survey_id:1, respondent_id:1}`：按问卷和填写者查询；
+- `submission_guard` 唯一、稀疏：仅禁止重复的问卷写入字符串；允许重复时字段为 null/缺省，因此并发提交不会误冲突。
+
+匿名语义是“对问卷创建者隐藏身份”，不是“无需登录”。数据库保留 `respondent_id` 以校验令牌、截止时间和重复策略；API 序列化匿名问卷答卷时移除 `respondent_id` 与用户名。
+
+## 一致性与聚合
+
+- 启动时 `ensure_indexes` 重复创建同名同定义索引，具有幂等性，不删除数据。
+- 发布时完整校验定义；发布后不允许修改题目、选项、规则与填写策略。
+- 提交时服务端重新计算访问路径，只保存路径内答案；跳过的必答题不报错，伪造的路径外答案被拒绝。
+- 单选/多选用 `$unwind + $group` 统计，数字题用 `$avg/$min/$max`，文本和原始答卷分页读取；结果来自真实持久化数据，不保存易过期的冗余汇总。
+- 数据库操作全部使用 UTC；API 输出 ISO 8601 字符串。
+
+## 安全的测试和演示库
+
+集成测试只允许数据库名以 `_test` 结尾，并为每次运行生成随机名称，结束后只删除该名称。演示脚本只接受 `_demo` 后缀，并只替换带 `stage1_demo_v1` 标记的文档。应用启动、索引初始化和脚本均不会清空默认业务库。

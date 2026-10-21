@@ -1,10 +1,22 @@
-# M1 Windows 本地原生部署说明
+# 第一阶段 Windows 本地原生部署说明
+
+本文记录从 Docker 默认部署迁移到本地原生部署的基础设施调整。完整业务功能和验收入口见根目录 `README.md`。
 
 ## 调整背景
 
 原始 M1 以 Docker Compose 同时运行 MongoDB、FastAPI 和 Vite。为降低课程助教验收门槛，默认流程现改为 Windows 本地原生部署：MongoDB Community Server 监听 `127.0.0.1:27017`，FastAPI 使用 `backend\.venv` 监听 `127.0.0.1:8000`，Vite 使用 npm 监听 `127.0.0.1:5173`。
 
 Dockerfile、Compose 服务名 `mongo` 和 Volume 均保留为可选兼容方案；本地流程不读取容器服务名、不依赖 Docker Volume，也不会操作已有 Docker 数据。
+
+## 一键启动
+
+安装 MongoDB Server 与 mongosh 并将其加入 PATH 后，从项目根目录运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-all.ps1
+```
+
+`start-all.ps1` 复用环境检查、后端和前端脚本。它只在 `.env` 缺失时复制示例配置。默认本地 MongoDB 未运行时，它会启动 `mongod.exe`，并且只使用工作区内的 `.local-mongodb-data` 和 `.local-mongodb-logs`。随后它分别打开两个可见的服务窗口，并在真实 `/ready` 与前端 HTTP 检查通过后报告成功；它不会注册 MongoDB 服务、终止未知端口占用进程或覆盖现有 `.env`。自定义、远程或带认证的 MongoDB URI 不会被脚本自动启动。
 
 ## 配置路径
 

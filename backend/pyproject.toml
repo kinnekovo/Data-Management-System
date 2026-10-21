@@ -4,13 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "survey-system-backend"
-version = "0.1.0"
-description = "M1 infrastructure for the MongoDB survey system"
+version = "1.0.0"
+description = "Stage-one MongoDB questionnaire system"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.115.6",
+  "PyJWT==2.10.1",
   "pydantic-settings==2.7.1",
   "pymongo==4.10.1",
+  "pwdlib[argon2]==0.2.1",
   "uvicorn[standard]==0.34.0",
 ]
 

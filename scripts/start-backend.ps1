@@ -28,7 +28,7 @@ if (-not (Test-Path -LiteralPath $VenvPython)) {
 }
 
 $ErrorActionPreference = "Continue"
-& $VenvPython -c "import fastapi, pydantic_settings, pymongo, uvicorn" *> $null
+& $VenvPython -c "import fastapi, jwt, pwdlib, pydantic_settings, pymongo, uvicorn" *> $null
 $dependencyCheckExitCode = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 if ($dependencyCheckExitCode -ne 0) {
