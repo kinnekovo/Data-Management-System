@@ -1,4 +1,5 @@
-from app.db.mongo import EXPECTED_INDEX_NAMES, ensure_indexes
+from app.db.mongo import ensure_indexes
+from app.db.schema import EXPECTED_INDEX_NAMES
 
 
 class RecordingCollection:

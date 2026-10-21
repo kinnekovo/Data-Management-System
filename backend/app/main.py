@@ -13,7 +13,7 @@ from app.api.statistics import router as statistics_router
 from app.api.surveys import router as surveys_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
-from app.db.mongo import MongoClientFactory, create_mongo_client, ensure_indexes
+from app.db.mongo import MongoClientFactory, create_mongo_client, ensure_database_schema
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,8 +32,8 @@ def create_app(
         app.state.mongodb_client = client
         app.state.mongodb_database = client[app_settings.mongodb_database]
         try:
-            ensure_indexes(app.state.mongodb_database)
-            logger.info("MongoDB indexes are ready")
+            ensure_database_schema(app.state.mongodb_database)
+            logger.info("MongoDB collection schemas and indexes are ready")
         except PyMongoError:
             logger.warning("MongoDB unavailable during startup; readiness will report 503")
         yield

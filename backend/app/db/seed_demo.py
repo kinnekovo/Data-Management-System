@@ -4,7 +4,7 @@ from secrets import token_urlsafe
 
 from app.core.config import get_settings
 from app.core.security import hash_password
-from app.db.mongo import create_mongo_client, ensure_indexes
+from app.db.mongo import create_mongo_client, ensure_database_schema
 from app.schemas.common import utc_now
 from app.services.rule_engine import replay_path
 
@@ -75,7 +75,7 @@ def run(database_name: str) -> dict:
     try:
         client.admin.command("ping")
         database = client[database_name]
-        ensure_indexes(database)
+        ensure_database_schema(database)
 
         previous_surveys = list(database.surveys.find({"demo_marker": DEMO_MARKER}, {"_id": 1}))
         previous_survey_ids = [item["_id"] for item in previous_surveys]

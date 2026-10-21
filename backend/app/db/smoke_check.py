@@ -2,7 +2,8 @@ import json
 from uuid import uuid4
 
 from app.core.config import get_settings
-from app.db.mongo import EXPECTED_INDEX_NAMES, create_mongo_client, ensure_indexes
+from app.db.mongo import create_mongo_client, ensure_database_schema
+from app.db.schema import EXPECTED_INDEX_NAMES
 
 SMOKE_COLLECTION = "_m1_smoke"
 
@@ -20,7 +21,7 @@ def run() -> dict[str, object]:
     try:
         client.admin.command("ping")
         database = client[database_name]
-        ensure_indexes(database)
+        ensure_database_schema(database)
 
         actual_indexes = {
             collection: set(database[collection].index_information())

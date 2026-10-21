@@ -1,47 +1,45 @@
 from collections.abc import Callable
 
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import MongoClient
 from pymongo.database import Database
 
-USERS_COLLECTION = "users"
-SURVEYS_COLLECTION = "surveys"
-RESPONSES_COLLECTION = "responses"
-
-EXPECTED_INDEX_NAMES = {
-    USERS_COLLECTION: {"ux_users_username"},
-    SURVEYS_COLLECTION: {"ux_surveys_slug", "ix_surveys_owner_created"},
-    RESPONSES_COLLECTION: {
-        "ix_responses_survey_submitted",
-        "ux_responses_submission_guard",
-    },
-}
+from app.db.schema import COLLECTION_VALIDATORS, INDEX_DEFINITIONS
 
 
 def create_mongo_client(uri: str, timeout_ms: int) -> MongoClient:
     return MongoClient(uri, serverSelectionTimeoutMS=timeout_ms)
 
 
+def ensure_collection_schemas(database: Database) -> None:
+    existing = set(database.list_collection_names())
+    for collection_name, validator in COLLECTION_VALIDATORS.items():
+        if collection_name not in existing:
+            database.create_collection(
+                collection_name,
+                validator=validator,
+                validationLevel="moderate",
+                validationAction="error",
+            )
+            continue
+        database.command(
+            {
+                "collMod": collection_name,
+                "validator": validator,
+                "validationLevel": "moderate",
+                "validationAction": "error",
+            }
+        )
+
+
 def ensure_indexes(database: Database) -> None:
-    database[USERS_COLLECTION].create_index(
-        [("username", ASCENDING)], unique=True, name="ux_users_username"
-    )
-    database[SURVEYS_COLLECTION].create_index(
-        [("slug", ASCENDING)], unique=True, name="ux_surveys_slug"
-    )
-    database[SURVEYS_COLLECTION].create_index(
-        [("owner_id", ASCENDING), ("created_at", DESCENDING)],
-        name="ix_surveys_owner_created",
-    )
-    database[RESPONSES_COLLECTION].create_index(
-        [("survey_id", ASCENDING), ("submitted_at", DESCENDING)],
-        name="ix_responses_survey_submitted",
-    )
-    database[RESPONSES_COLLECTION].create_index(
-        [("submission_guard", ASCENDING)],
-        unique=True,
-        partialFilterExpression={"submission_guard": {"$type": "string"}},
-        name="ux_responses_submission_guard",
-    )
+    for collection_name, definitions in INDEX_DEFINITIONS.items():
+        for keys, options in definitions:
+            database[collection_name].create_index(keys, **options)
+
+
+def ensure_database_schema(database: Database) -> None:
+    ensure_collection_schemas(database)
+    ensure_indexes(database)
 
 
 MongoClientFactory = Callable[[str, int], MongoClient]

@@ -143,7 +143,7 @@ npm run build
 | 实际输出 | 创建成功，进入问卷管理界面 |
 | 结果 | **PASS** |
 
-![alt text](image.png)
+![创建问卷测试结果](assets/image.png)
 
 ### TC-M02 添加四种题目
 
@@ -155,7 +155,7 @@ npm run build
 | 实际输出 | 添加成功，结构预览显示“单选题/多选题/文本题/数字题”，顺序和必答状态正确 |
 | 结果 | **PASS** |
 
-![alt text](image-1.png)
+![添加题目测试结果](assets/image-1.png)
 
 ### TC-M03 条件跳转
 
@@ -167,7 +167,7 @@ npm run build
 | 实际输出 | 直接跳转Q4，提交前检查页只列出 Q1 和 Q4| 
 | 结果 | **PASS** |
 
-![alt text](image-2.png)
+![条件跳转测试结果](assets/image-2.png)
 
 ### TC-M04 多选跳转组合
 
@@ -179,7 +179,7 @@ npm run build
 | 实际输出 | A+B 命中“包含全部”；C 命中“包含任一”；仅 B 不命中任一规则并顺序进入下一题 |
 | 结果 | **PASS** |
 
-![alt text](image-3.png)
+![多选跳转组合测试结果](assets/image-3.png)
 
 ### TC-M05 前端校验
 
@@ -191,7 +191,7 @@ npm run build
 | 实际输出 | 必答题未作答时，显示“该题未作答”，无法进入下一题 |
 | 结果 | **PASS** |
 
-![alt text](image-4.png)
+![前端校验测试结果](assets/image-4.png)
 
 ### TC-M06 提交问卷
 
@@ -203,8 +203,8 @@ npm run build
 | 实际输出 | 显示“提交成功”和提交时间；创建者的答卷记录增加 1 条 |
 | 结果 | **PASS** |
 
-![alt text](image-5.png)
-![alt text](image-6.png)
+![提交问卷测试结果一](assets/image-5.png)
+![提交问卷测试结果二](assets/image-6.png)
 
 ### TC-M07 禁止重复提交
 
@@ -216,7 +216,7 @@ npm run build
 | 实际输出 | 第二次提交时，显示“不允许重复提交” |
 | 结果 | **PASS** |
 
-![alt text](image-7.png)
+![禁止重复提交测试结果](assets/image-7.png)
 
 ### TC-M08 统计页面
 
@@ -228,7 +228,7 @@ npm run build
 | 实际输出 | 能够正确显示提交人与对应提交内容 |
 | 结果 | **PASS** |
 
-![alt text](image-8.png)
+![统计页面测试结果](assets/image-8.png)
 
 
 ## 6. 本次自动测试实测记录
@@ -236,4 +236,9 @@ npm run build
 | 日期 | 命令 | 实际输出 | 结果 |
 |---|---|---|---|
 | 2026-10-21 | `.\.venv\Scripts\python.exe -m pytest -q tests\integration\test_required_cases.py` | `6 passed`；1 条 Starlette TestClient/AnyIO 上游弃用警告 | **PASS** |
+| 2026-10-21 | `.\.venv\Scripts\python.exe -m pytest -q` | `49 passed`；包含真实 MongoDB 集成测试和新增集合 Schema 测试 | **PASS** |
+| 2026-10-21 | `.\.venv\Scripts\python.exe -m app.db.smoke_check` | `status=passed`；3 个集合 Schema 可应用；5 个索引存在；临时文档可读且已清理 | **PASS** |
+| 2026-10-21 | `npm run build` | Vite 8.3.4；41 modules transformed；生产包生成成功 | **PASS** |
+
+说明：第一次全量测试时本机 MongoDB 未启动，集成用例因 `127.0.0.1:27017` 拒绝连接而未进入业务断言；启动仅使用工作区 `.local-mongodb-data` 的项目专用实例后重新执行，最终结果为上表的 `49 passed`。该环境问题不计为业务用例失败。
 
