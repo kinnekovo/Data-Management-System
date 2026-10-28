@@ -2,13 +2,16 @@ import argparse
 import json
 from secrets import token_urlsafe
 
+from bson import ObjectId
+
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.mongo import create_mongo_client, ensure_database_schema
 from app.schemas.common import utc_now
 from app.services.rule_engine import replay_path
 
-DEMO_MARKER = "stage1_demo_v1"
+DEMO_MARKER = "stage2_demo_v1"
+LEGACY_DEMO_MARKERS = ["stage1_demo_v1", DEMO_MARKER]
 DEMO_PASSWORD = "DemoPass123!"
 
 
@@ -77,12 +80,18 @@ def run(database_name: str) -> dict:
         database = client[database_name]
         ensure_database_schema(database)
 
-        previous_surveys = list(database.surveys.find({"demo_marker": DEMO_MARKER}, {"_id": 1}))
+        previous_surveys = list(
+            database.surveys.find({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}}, {"_id": 1})
+        )
         previous_survey_ids = [item["_id"] for item in previous_surveys]
         if previous_survey_ids:
-            database.responses.delete_many({"survey_id": {"$in": previous_survey_ids}, "demo_marker": DEMO_MARKER})
-        database.surveys.delete_many({"demo_marker": DEMO_MARKER})
-        database.users.delete_many({"demo_marker": DEMO_MARKER})
+            database.responses.delete_many({"survey_id": {"$in": previous_survey_ids}})
+        database.surveys.delete_many({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}})
+        database.question_versions.delete_many({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}})
+        database.questions.delete_many({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}})
+        database.question_bank_items.delete_many({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}})
+        database.question_banks.delete_many({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}})
+        database.users.delete_many({"demo_marker": {"$in": LEGACY_DEMO_MARKERS}})
 
         now = utc_now()
         users = []
@@ -96,6 +105,41 @@ def run(database_name: str) -> dict:
             document["_id"] = database.users.insert_one(document).inserted_id
             users.append(document)
 
+        embedded_questions = question_definition()
+        for embedded in embedded_questions:
+            question_id = ObjectId()
+            version_id = ObjectId()
+            database.question_versions.insert_one(
+                {
+                    "_id": version_id,
+                    "question_id": question_id,
+                    "version_no": 1,
+                    "parent_version_id": None,
+                    "created_by": users[0]["_id"],
+                    "title": embedded["title"],
+                    "type": embedded["type"],
+                    "options": embedded["options"],
+                    "validation": embedded["validation"],
+                    "change_note": "演示题目初始版本",
+                    "created_at": now,
+                    "demo_marker": DEMO_MARKER,
+                }
+            )
+            database.questions.insert_one(
+                {
+                    "_id": question_id,
+                    "owner_id": users[0]["_id"],
+                    "current_version_id": version_id,
+                    "archived": False,
+                    "created_at": now,
+                    "updated_at": now,
+                    "demo_marker": DEMO_MARKER,
+                }
+            )
+            embedded["question_id"] = question_id
+            embedded["question_version_id"] = version_id
+            embedded["version_no"] = 1
+
         survey = {
             "owner_id": users[0]["_id"],
             "slug": f"demo{token_urlsafe(8).replace('-', '').replace('_', '')}",
@@ -105,8 +149,8 @@ def run(database_name: str) -> dict:
             "allow_multiple_submissions": False,
             "status": "published",
             "expires_at": None,
-            "questions": question_definition(),
-            "schema_version": 1,
+            "questions": embedded_questions,
+            "schema_version": 2,
             "definition_version": 1,
             "created_at": now,
             "updated_at": now,
@@ -122,6 +166,11 @@ def run(database_name: str) -> dict:
             {"question_id": "q_score", "value": 88},
         ]
         normalized, _visited = replay_path(survey["questions"], submitted_answers)
+        source_by_instance = {item["id"]: item for item in embedded_questions}
+        for answer in normalized:
+            source = source_by_instance[answer["question_id"]]
+            answer["library_question_id"] = source["question_id"]
+            answer["question_version_id"] = source["question_version_id"]
         database.responses.insert_one(
             {
                 "survey_id": survey["_id"],

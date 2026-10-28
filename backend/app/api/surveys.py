@@ -3,14 +3,24 @@ from secrets import token_urlsafe
 from typing import Any
 from uuid import uuid4
 
+from bson import ObjectId
 from fastapi import APIRouter, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.api.dependencies import CurrentUser, DatabaseDep
+from app.api.questions import create_question as create_library_question
+from app.api.questions import create_version as create_library_version
 from app.core.errors import AppError
+from app.repositories.questions import get_question, get_question_version
 from app.repositories.surveys import get_owned_survey
 from app.schemas.common import iso_datetime, json_value, utc_now
+from app.schemas.question import (
+    LibraryQuestionUse,
+    QuestionCreate,
+    QuestionVersionCreate,
+    SurveyQuestionVersionSwitch,
+)
 from app.schemas.survey import QuestionInput, QuestionOrderUpdate, SurveyCreate, SurveyUpdate
 from app.services.validation import validate_survey_definition
 
@@ -53,13 +63,44 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
-def _question_document(payload: QuestionInput) -> dict[str, Any]:
-    data = payload.model_dump()
-    data["id"] = _new_id("q")
-    for option in data["options"]:
-        if not option.get("id"):
-            option["id"] = _new_id("opt")
-    return data
+def _question_from_version(
+    version: dict,
+    *,
+    required: bool = False,
+    rules: list[dict[str, Any]] | None = None,
+    instance_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": instance_id or _new_id("q"),
+        "question_id": version["question_id"],
+        "question_version_id": version["_id"],
+        "version_no": version["version_no"],
+        "type": version["type"],
+        "title": version["title"],
+        "required": required,
+        "options": version.get("options", []),
+        "validation": version.get("validation", {}),
+        "rules": rules or [],
+    }
+
+
+def _create_library_definition(
+    payload: QuestionInput, database, current_user: dict, *, change_note: str
+) -> tuple[dict, dict]:
+    created = create_library_question(
+        QuestionCreate(
+            type=payload.type,
+            title=payload.title,
+            options=payload.options,
+            validation=payload.validation,
+            change_note=change_note,
+        ),
+        database,
+        current_user,
+    )
+    question = database.questions.find_one({"_id": ObjectId(created["id"])})
+    version = database.question_versions.find_one({"_id": question["current_version_id"]})
+    return question, version
 
 
 def _updated_question(payload: QuestionInput, question_id: str) -> dict[str, Any]:
@@ -83,7 +124,7 @@ def create_survey(payload: SurveyCreate, database: DatabaseDep, current_user: Cu
         "status": "draft",
         "expires_at": _utc(payload.expires_at),
         "questions": [],
-        "schema_version": 1,
+        "schema_version": 2,
         "definition_version": 1,
         "created_at": now,
         "updated_at": now,
@@ -146,7 +187,12 @@ def add_question(
     survey = get_owned_survey(database, survey_id, current_user["_id"])
     if survey["status"] != "draft":
         raise AppError(409, "SURVEY_FROZEN", "只有草稿问卷可以编辑题目")
-    question = _question_document(payload)
+    _library_question, version = _create_library_definition(
+        payload, database, current_user, change_note="在问卷中创建题目"
+    )
+    question = _question_from_version(
+        version, required=payload.required, rules=[item.model_dump() for item in payload.rules]
+    )
     database.surveys.update_one(
         {"_id": survey["_id"]},
         {"$push": {"questions": question}, "$set": {"updated_at": utc_now()}},
@@ -165,9 +211,55 @@ def update_question(
     survey = get_owned_survey(database, survey_id, current_user["_id"])
     if survey["status"] != "draft":
         raise AppError(409, "SURVEY_FROZEN", "只有草稿问卷可以编辑题目")
-    if not any(item["id"] == question_id for item in survey.get("questions", [])):
+    existing = next(
+        (item for item in survey.get("questions", []) if item["id"] == question_id), None
+    )
+    if existing is None:
         raise AppError(404, "QUESTION_NOT_FOUND", "题目不存在")
-    question = _updated_question(payload, question_id)
+    content_fields = ("type", "title", "options", "validation")
+    incoming = payload.model_dump()
+    content_changed = any(incoming[field] != existing.get(field) for field in content_fields)
+    library_question = None
+    version = None
+    if existing.get("question_id") and existing.get("question_version_id"):
+        library_question = database.questions.find_one({"_id": existing["question_id"]})
+        version = database.question_versions.find_one({"_id": existing["question_version_id"]})
+
+    if library_question is None or version is None:
+        library_question, version = _create_library_definition(
+            payload, database, current_user, change_note="迁移旧问卷题目"
+        )
+        content_changed = False
+    elif content_changed:
+        if library_question["owner_id"] != current_user["_id"] or payload.type != version["type"]:
+            library_question, version = _create_library_definition(
+                payload,
+                database,
+                current_user,
+                change_note="基于已有题目另存为新题目",
+            )
+        else:
+            created = create_library_version(
+                str(library_question["_id"]),
+                QuestionVersionCreate(
+                    type=payload.type,
+                    title=payload.title,
+                    options=payload.options,
+                    validation=payload.validation,
+                    parent_version_id=str(version["_id"]),
+                    change_note="从问卷编辑器创建新版本",
+                ),
+                database,
+                current_user,
+            )
+            version = database.question_versions.find_one({"_id": ObjectId(created["id"])})
+
+    question = _question_from_version(
+        version,
+        required=payload.required,
+        rules=[item.model_dump() for item in payload.rules],
+        instance_id=question_id,
+    )
     result = database.surveys.update_one(
         {"_id": survey["_id"], "questions.id": question_id},
         {"$set": {"questions.$": question, "updated_at": utc_now()}},
@@ -175,6 +267,65 @@ def update_question(
     if result.matched_count == 0:
         raise AppError(404, "QUESTION_NOT_FOUND", "题目不存在")
     return json_value(question)
+
+
+@router.post("/{survey_id}/questions/from-library", status_code=status.HTTP_201_CREATED)
+def add_question_from_library(
+    survey_id: str,
+    payload: LibraryQuestionUse,
+    database: DatabaseDep,
+    current_user: CurrentUser,
+) -> dict:
+    survey = get_owned_survey(database, survey_id, current_user["_id"])
+    if survey["status"] != "draft":
+        raise AppError(409, "SURVEY_FROZEN", "只有草稿问卷可以添加题目")
+    library_question = get_question(database, payload.question_id, current_user["_id"])
+    version = (
+        get_question_version(database, library_question, payload.question_version_id)
+        if payload.question_version_id
+        else database.question_versions.find_one(
+            {"_id": library_question["current_version_id"]}
+        )
+    )
+    question = _question_from_version(version, required=payload.required)
+    database.surveys.update_one(
+        {"_id": survey["_id"]},
+        {"$push": {"questions": question}, "$set": {"updated_at": utc_now()}},
+    )
+    return json_value(question)
+
+
+@router.put("/{survey_id}/questions/{question_id}/version")
+def switch_question_version(
+    survey_id: str,
+    question_id: str,
+    payload: SurveyQuestionVersionSwitch,
+    database: DatabaseDep,
+    current_user: CurrentUser,
+) -> dict:
+    survey = get_owned_survey(database, survey_id, current_user["_id"])
+    if survey["status"] != "draft":
+        raise AppError(409, "SURVEY_FROZEN", "只有草稿问卷可以切换题目版本")
+    existing = next(
+        (item for item in survey.get("questions", []) if item["id"] == question_id), None
+    )
+    if existing is None or not existing.get("question_id"):
+        raise AppError(404, "QUESTION_NOT_FOUND", "题目不存在或尚未迁移")
+    library_question = get_question(
+        database, str(existing["question_id"]), current_user["_id"]
+    )
+    version = get_question_version(database, library_question, payload.question_version_id)
+    switched = _question_from_version(
+        version,
+        required=existing.get("required", False),
+        rules=existing.get("rules", []),
+        instance_id=question_id,
+    )
+    database.surveys.update_one(
+        {"_id": survey["_id"], "questions.id": question_id},
+        {"$set": {"questions.$": switched, "updated_at": utc_now()}},
+    )
+    return json_value(switched)
 
 
 @router.delete("/{survey_id}/questions/{question_id}", status_code=204)

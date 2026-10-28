@@ -19,6 +19,12 @@ const preview = ref(false)
 const expiresLocal = ref('')
 const draftType = ref('single_choice')
 const draftTitle = ref('')
+const libraryQuestions = ref([])
+const banks = ref([])
+const librarySource = ref('all')
+const selectedLibraryQuestion = ref('')
+const selectedLibraryVersion = ref('')
+const selectedQuestionDetail = ref(null)
 const readonly = computed(() => survey.value?.status !== 'draft')
 
 function showError(reason) {
@@ -33,11 +39,74 @@ async function load() {
   try {
     survey.value = await apiRequest(`/surveys/${route.params.id}`)
     expiresLocal.value = toLocalInput(survey.value.expires_at)
+    if (survey.value.status === 'draft') await loadLibrary()
   } catch (reason) {
     showError(reason)
   } finally {
     loading.value = false
   }
+}
+
+async function loadLibrary() {
+  const [questionResult, bankResult] = await Promise.all([
+    apiRequest('/questions'), apiRequest('/question-banks'),
+  ])
+  libraryQuestions.value = questionResult.items
+  banks.value = bankResult.items
+}
+
+async function sourceChanged() {
+  selectedLibraryQuestion.value = ''
+  selectedLibraryVersion.value = ''
+  selectedQuestionDetail.value = null
+  if (librarySource.value === 'all') {
+    await loadLibrary()
+    return
+  }
+  const bank = await apiRequest(`/question-banks/${librarySource.value}`)
+  libraryQuestions.value = bank.items.map((item) => ({ ...item.question, bank_default_version_id: item.default_version.id }))
+}
+
+async function libraryQuestionChanged() {
+  if (!selectedLibraryQuestion.value) return
+  selectedQuestionDetail.value = await apiRequest(`/questions/${selectedLibraryQuestion.value}`)
+  const selected = libraryQuestions.value.find((item) => item.id === selectedLibraryQuestion.value)
+  selectedLibraryVersion.value = selected?.bank_default_version_id || selectedQuestionDetail.value.current_version_id
+}
+
+async function addFromLibrary() {
+  if (!selectedLibraryQuestion.value || !selectedLibraryVersion.value) {
+    error.value = '请先选择题目和版本'
+    return
+  }
+  busy.value = true
+  try {
+    const question = await apiRequest(`/surveys/${survey.value.id}/questions/from-library`, {
+      method: 'POST',
+      body: { question_id: selectedLibraryQuestion.value, question_version_id: selectedLibraryVersion.value, required: false },
+    })
+    survey.value.questions.push(question)
+    if (librarySource.value === 'all') await loadLibrary()
+    notice.value = `已从题目库加入“${question.title}”v${question.version_no}`
+  } catch (reason) { showError(reason) } finally { busy.value = false }
+}
+
+function latestFor(question) {
+  return libraryQuestions.value.find((item) => item.id === question.question_id)
+}
+
+async function upgradeQuestion(question) {
+  const latest = latestFor(question)
+  if (!latest || latest.current_version_id === question.question_version_id) return
+  try {
+    const updated = await apiRequest(`/surveys/${survey.value.id}/questions/${question.id}/version`, {
+      method: 'PUT', body: { question_version_id: latest.current_version_id },
+    })
+    const index = survey.value.questions.findIndex((item) => item.id === question.id)
+    survey.value.questions[index] = updated
+    if (librarySource.value === 'all') await loadLibrary()
+    notice.value = `已将“${updated.title}”升级到 v${updated.version_no}`
+  } catch (reason) { showError(reason) }
 }
 
 async function saveBasics() {
@@ -81,6 +150,7 @@ async function addQuestion() {
       method: 'POST', body: freshQuestion(draftType.value, draftTitle.value.trim()),
     })
     survey.value.questions.push(question)
+    if (librarySource.value === 'all') await loadLibrary()
     draftTitle.value = ''
     notice.value = '题目已添加，可继续设置选项、约束和跳转规则'
   } catch (reason) { showError(reason) } finally { busy.value = false }
@@ -93,6 +163,7 @@ async function saveQuestion(question) {
     const updated = await apiRequest(`/surveys/${survey.value.id}/questions/${question.id}`, { method: 'PATCH', body: question })
     const index = survey.value.questions.findIndex((item) => item.id === question.id)
     survey.value.questions[index] = updated
+    if (librarySource.value === 'all') await loadLibrary()
     notice.value = `第 ${index + 1} 题已保存`
   } catch (reason) { showError(reason) } finally { savingQuestion.value = '' }
 }
@@ -178,24 +249,37 @@ onMounted(load)
 
     <div class="section-heading"><div><h2>题目与跳转</h2><p>共 {{ survey.questions.length }} 道题，可根据回答跳转到后面的题目。</p></div></div>
     <div v-if="!survey.questions.length" class="empty-state compact-empty"><h3>尚未添加题目</h3><p>至少添加一道题后才能发布问卷。</p></div>
-    <QuestionEditor
-      v-for="(question, index) in survey.questions"
-      :key="question.id"
-      :question="question"
-      :index="index"
-      :all-questions="survey.questions"
-      :readonly="readonly"
-      :saving="savingQuestion === question.id"
-      @save="saveQuestion"
-      @delete="deleteQuestion(question)"
-      @move-up="move(index, -1)"
-      @move-down="move(index, 1)"
-    />
+    <template v-for="(question, index) in survey.questions" :key="question.id">
+      <div v-if="question.question_id" class="question-origin-bar">
+        <span>题目库版本 v{{ question.version_no || '?' }}</span>
+        <RouterLink :to="`/questions/${question.question_id}`">查看历史与使用情况</RouterLink>
+        <button v-if="!readonly && latestFor(question) && latestFor(question).current_version_id !== question.question_version_id" class="button secondary compact" type="button" @click="upgradeQuestion(question)">升级到 v{{ latestFor(question).current_version.version_no }}</button>
+      </div>
+      <QuestionEditor
+        :question="question"
+        :index="index"
+        :all-questions="survey.questions"
+        :readonly="readonly"
+        :saving="savingQuestion === question.id"
+        @save="saveQuestion"
+        @delete="deleteQuestion(question)"
+        @move-up="move(index, -1)"
+        @move-down="move(index, 1)"
+      />
+    </template>
+
+    <section v-if="!readonly" class="library-picker">
+      <div><h3>从题目库选择</h3><p>可选个人题目、共享题目或题库中的推荐版本。</p></div>
+      <label>来源<select v-model="librarySource" @change="sourceChanged"><option value="all">全部可用题目</option><option v-for="bank in banks" :key="bank.id" :value="bank.id">题库：{{ bank.name }}</option></select></label>
+      <label>题目<select v-model="selectedLibraryQuestion" @change="libraryQuestionChanged"><option value="" disabled>请选择题目</option><option v-for="question in libraryQuestions" :key="question.id" :value="question.id">{{ question.current_version.title }}{{ question.access === 'shared' ? `（${question.owner_username} 共享）` : '' }}</option></select></label>
+      <label>版本<select v-model="selectedLibraryVersion" :disabled="!selectedQuestionDetail"><option v-for="version in selectedQuestionDetail?.versions || []" :key="version.id" :value="version.id">v{{ version.version_no }} · {{ version.title }}</option></select></label>
+      <button class="button" type="button" :disabled="busy || !selectedLibraryVersion" @click="addFromLibrary">加入问卷</button>
+    </section>
 
     <form v-if="!readonly" class="add-question-bar" @submit.prevent="addQuestion">
       <label>新题型<select v-model="draftType"><option value="single_choice">单选题</option><option value="multiple_choice">多选题</option><option value="text">文本填空</option><option value="number">数字填空</option></select></label>
       <label>题目标题<input v-model="draftTitle" maxlength="500" placeholder="输入题目后添加" /></label>
-      <button class="button" :disabled="busy" type="submit">添加题目</button>
+      <button class="button" :disabled="busy" type="submit">新建并保存题目</button>
     </form>
 
     <footer class="sticky-actions">

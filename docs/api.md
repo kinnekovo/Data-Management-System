@@ -1,4 +1,4 @@
-# 第一阶段 API 文档
+# 第二阶段 API 文档
 
 基地址：`http://127.0.0.1:8000/api/v1`。除注册、登录和健康检查外，所有接口都需要：
 
@@ -161,5 +161,33 @@ Content-Type: application/json
 ```
 
 分页响应均返回 `page`、`page_size`、`total`、`items`。非匿名原始答卷 item 含 `respondent_id` 与 `respondent_username`；匿名问卷不含这两个键。
+
+## 题目库、版本和共享
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST / GET | `/questions` | 创建题目或查询个人/共享题目，`scope=all|mine|shared` |
+| GET / DELETE | `/questions/{id}` | 查看版本详情或软归档题目 |
+| GET / POST | `/questions/{id}/versions` | 查询历史或创建不可变新版本 |
+| POST | `/questions/{id}/versions/{version_id}/restore` | 基于历史内容创建新的恢复版本 |
+| GET / POST | `/questions/{id}/shares` | 查询共享对象或按用户名授予只读使用权 |
+| DELETE | `/questions/{id}/shares/{user_id}` | 撤销未来使用权，不删除已有问卷快照 |
+| GET | `/questions/{id}/usages` | 查询使用该逻辑题目的问卷及版本 |
+| GET | `/questions/{id}/statistics` | 跨问卷匿名统计，可用 `version_id` 筛选 |
+
+题目版本只包含标题、题型、选项和校验约束；`required` 与跳转规则属于问卷实例。修改题型必须创建新题目。共享用户可使用所有版本，但不能修改原题；修改共享题目内容时，问卷编辑器会另存为自己的题目。
+
+## 自定义题库与问卷选题
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST / GET | `/question-banks` | 创建或查询自己的题库 |
+| GET / PATCH / DELETE | `/question-banks/{id}` | 题库详情、修改和删除 |
+| POST | `/question-banks/{id}/items` | 加入个人或共享题目，并指定默认版本 |
+| PATCH / DELETE | `/question-banks/{id}/items/{question_id}` | 更新推荐版本或移出题库 |
+| POST | `/surveys/{id}/questions/from-library` | 将指定题目版本加入草稿问卷 |
+| PUT | `/surveys/{id}/questions/{instance_id}/version` | 显式切换草稿中的题目版本 |
+
+跨问卷统计按版本分别返回。数字题额外返回所有可见版本的总体平均值、最小值、最大值和直方图；文本题只返回匿名数量，不跨问卷暴露原始文本。题目所有者可以查看所有使用该题目的匿名汇总，共享用户只统计自己拥有的问卷。
 
 交互调试以运行中的 Swagger `http://127.0.0.1:8000/docs` 为准。

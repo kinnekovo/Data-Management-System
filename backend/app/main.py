@@ -9,6 +9,8 @@ from pymongo.errors import PyMongoError
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
 from app.api.public_surveys import router as public_surveys_router
+from app.api.question_banks import router as question_banks_router
+from app.api.questions import router as questions_router
 from app.api.statistics import router as statistics_router
 from app.api.surveys import router as surveys_router
 from app.core.config import Settings, get_settings
@@ -41,8 +43,8 @@ def create_app(
 
     app = FastAPI(
         title=app_settings.app_name,
-        version="1.0.0",
-        description="基于 MongoDB 的问卷系统第一阶段 API",
+        version="2.0.0",
+        description="支持题目复用、共享、不可变版本、题库和跨问卷统计的问卷系统 API",
         lifespan=lifespan,
     )
     app.add_middleware(
@@ -56,6 +58,8 @@ def create_app(
     app.include_router(health_router, prefix=app_settings.api_prefix)
     app.include_router(auth_router, prefix=app_settings.api_prefix)
     app.include_router(surveys_router, prefix=app_settings.api_prefix)
+    app.include_router(questions_router, prefix=app_settings.api_prefix)
+    app.include_router(question_banks_router, prefix=app_settings.api_prefix)
     app.include_router(public_surveys_router, prefix=app_settings.api_prefix)
     app.include_router(statistics_router, prefix=app_settings.api_prefix)
     return app

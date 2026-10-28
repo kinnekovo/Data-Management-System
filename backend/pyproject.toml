@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "survey-system-backend"
-version = "1.0.0"
-description = "Stage-one MongoDB questionnaire system"
+version = "2.0.0"
+description = "MongoDB questionnaire system with reusable versioned questions"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.115.6",

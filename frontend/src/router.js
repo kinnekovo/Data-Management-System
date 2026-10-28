@@ -3,6 +3,9 @@ import { getToken } from './api/client.js'
 import DashboardView from './views/DashboardView.vue'
 import LoginView from './views/LoginView.vue'
 import NewSurveyView from './views/NewSurveyView.vue'
+import QuestionBanksView from './views/QuestionBanksView.vue'
+import QuestionDetailView from './views/QuestionDetailView.vue'
+import QuestionLibraryView from './views/QuestionLibraryView.vue'
 import RegisterView from './views/RegisterView.vue'
 import StatisticsView from './views/StatisticsView.vue'
 import SurveyEditView from './views/SurveyEditView.vue'
@@ -16,6 +19,9 @@ const router = createRouter({
     { path: '/register', component: RegisterView, meta: { guest: true } },
     { path: '/dashboard', component: DashboardView, meta: { requiresAuth: true } },
     { path: '/surveys/new', component: NewSurveyView, meta: { requiresAuth: true } },
+    { path: '/questions', component: QuestionLibraryView, meta: { requiresAuth: true } },
+    { path: '/questions/:id', component: QuestionDetailView, meta: { requiresAuth: true } },
+    { path: '/question-banks', component: QuestionBanksView, meta: { requiresAuth: true } },
     { path: '/surveys/:id/edit', component: SurveyEditView, meta: { requiresAuth: true } },
     { path: '/surveys/:id/statistics', component: StatisticsView, meta: { requiresAuth: true } },
     { path: '/survey/:slug', component: SurveyFillView, meta: { requiresAuth: true, publicFlow: true } },

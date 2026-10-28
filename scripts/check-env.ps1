@@ -42,7 +42,7 @@ function Test-TcpPort {
     finally { $client.Dispose() }
 }
 
-Write-Host "第一阶段本地环境检查" -ForegroundColor Cyan
+Write-Host "第二阶段本地环境检查" -ForegroundColor Cyan
 Write-Host "项目目录：$ProjectRoot"
 
 $python = Get-Command python.exe -ErrorAction SilentlyContinue

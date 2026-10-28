@@ -68,12 +68,22 @@ def submit_response(
     except PathValidationError as error:
         raise AppError(422, error.code, error.message, error.details) from error
 
+    question_map = {item["id"]: item for item in survey.get("questions", [])}
+    enriched_answers = []
+    for answer in normalized_answers:
+        enriched = dict(answer)
+        question = question_map.get(answer["question_id"], {})
+        if question.get("question_id") and question.get("question_version_id"):
+            enriched["library_question_id"] = question["question_id"]
+            enriched["question_version_id"] = question["question_version_id"]
+        enriched_answers.append(enriched)
+
     submitted_at = utc_now()
     document: dict[str, Any] = {
         "survey_id": survey["_id"],
         "respondent_id": current_user["_id"],
         "definition_version": survey.get("definition_version", 1),
-        "answers": normalized_answers,
+        "answers": enriched_answers,
         "submitted_at": submitted_at,
     }
     if not survey.get("allow_multiple_submissions", False):

@@ -202,7 +202,7 @@ def validate_survey_definition(questions: list[dict[str, Any]]) -> list[dict[str
             if target not in position:
                 issues.append(_issue(question_id, "rules.target_question_id", "跳转目标题不存在"))
             elif position[target] <= index:
-                issues.append(_issue(question_id, "rules.target_question_id", "第一阶段只允许向后跳转"))
+                issues.append(_issue(question_id, "rules.target_question_id", "当前系统只允许向后跳转"))
             if question_type == "single_choice" and value not in option_ids:
                 issues.append(_issue(question_id, "rules.value", "单选规则值必须属于本题选项"))
             elif question_type == "multiple_choice":

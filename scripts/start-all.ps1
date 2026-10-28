@@ -126,7 +126,7 @@ function Start-ProjectWindow {
         -PassThru
 }
 
-Write-Host "第一阶段问卷系统一键启动" -ForegroundColor Cyan
+Write-Host "第二阶段问卷系统一键启动" -ForegroundColor Cyan
 Write-Host "项目目录：$ProjectRoot"
 
 if (-not (Test-Path -LiteralPath $EnvPath)) {
@@ -197,7 +197,7 @@ else {
 }
 
 Write-Host ""
-Write-Host "第一阶段本地环境已启动：" -ForegroundColor Green
+Write-Host "第二阶段本地环境已启动：" -ForegroundColor Green
 Write-Host "  前端：  http://127.0.0.1:5173"
 Write-Host "  API：   http://127.0.0.1:8000"
 Write-Host "  Swagger：http://127.0.0.1:8000/docs"

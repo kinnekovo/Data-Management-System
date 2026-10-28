@@ -23,6 +23,8 @@ onMounted(restoreSession)
       </RouterLink>
       <nav v-if="auth.user" aria-label="主导航">
         <RouterLink to="/dashboard">我的问卷</RouterLink>
+        <RouterLink to="/questions">题目库</RouterLink>
+        <RouterLink to="/question-banks">题库</RouterLink>
         <RouterLink to="/surveys/new">新建问卷</RouterLink>
         <span class="user-chip">{{ auth.user.username }}</span>
         <button class="button quiet compact" type="button" @click="signOut">退出</button>

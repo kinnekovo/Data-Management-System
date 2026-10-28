@@ -1,6 +1,6 @@
 # 基于 MongoDB 的问卷系统
 
-> 支持条件跳转、严格校验和实时统计的课程问卷系统。
+> 支持题目复用、共享、不可变版本、题库、条件跳转和跨问卷统计的课程问卷系统。
 
 ## 项目简介
 
@@ -14,6 +14,21 @@
 - 单选、多选和数字条件跳转，仅允许向后跳转；
 - 匿名展示、截止时间和重复提交策略；
 - 选项计数、数字汇总、文本和原始答卷分页统计。
+- 个人题目库、共享题目和自定义分类题库；
+- 不可变题目版本、历史恢复和草稿显式升级；
+- 题目使用情况查询及按版本隔离的跨问卷匿名统计。
+
+## 第一阶段数据升级
+
+第二阶段第一次运行前，可先预览再执行幂等迁移。迁移会为旧问卷中的每道题建立独立题目和 v1，并回填旧答卷引用，不会按标题自动合并或修改问卷内容。
+
+```powershell
+Set-Location backend
+..\.venv\Scripts\python.exe -m app.db.migrate_phase2 --database survey_system
+..\.venv\Scripts\python.exe -m app.db.migrate_phase2 --database survey_system --apply
+```
+
+再次运行预览应显示 `surveys_changed=0`、`questions_created=0`、`responses_changed=0`。
 
 ## 快速运行
 

@@ -1,7 +1,7 @@
 # 问卷系统测试用例与手工测试流程
 
-文档日期：2026-10-21  
-测试范围：创建问卷、添加题目、跳转逻辑、答案校验、提交问卷、统计结果。  
+文档日期：2026-10-28
+测试范围：第一阶段全部功能，以及题目复用、共享、不可变版本、恢复、题库、使用查询和跨问卷统计。
 自动测试入口：`backend/tests/integration/test_required_cases.py`。
 
 ## 1. 测试环境与结果标记
@@ -94,6 +94,15 @@
 | 对应代码 | `test_case_statistics` |
 
 ## 3. 自动测试执行方法
+
+第二阶段端到端用例位于 `backend/tests/integration/test_phase2_questions.py`，覆盖以下不变量：
+
+- 同一道逻辑题可在两个用户的问卷中分别使用 v1 和 v2；
+- 创建 v2、从 v1 恢复为 v3 后，版本来源关系保持可查询；
+- 共享用户只能使用，撤销共享后其已有问卷快照仍可读取；
+- 题库可以固定默认版本并更新推荐版本；
+- 题目所有者可查询全部使用情况和匿名跨问卷汇总，共享用户只看到自己的问卷数据；
+- 修改草稿题目产生新版本，已发布问卷仍显示发布时的旧标题和版本。
 
 在项目根目录打开 Windows PowerShell：
 
@@ -239,6 +248,9 @@ npm run build
 | 2026-10-21 | `.\.venv\Scripts\python.exe -m pytest -q` | `49 passed`；包含真实 MongoDB 集成测试和新增集合 Schema 测试 | **PASS** |
 | 2026-10-21 | `.\.venv\Scripts\python.exe -m app.db.smoke_check` | `status=passed`；3 个集合 Schema 可应用；5 个索引存在；临时文档可读且已清理 | **PASS** |
 | 2026-10-21 | `npm run build` | Vite 8.3.4；41 modules transformed；生产包生成成功 | **PASS** |
+| 2026-10-28 | `\.venv\Scripts\python.exe -m pytest backend\tests -q -p no:cacheprovider` | `51 passed`；含 12 个真实 MongoDB 集成测试 | **PASS** |
+| 2026-10-28 | `npm run build` | Vite 8.3.4；44 modules transformed；生产包生成成功 | **PASS** |
+| 2026-10-28 | `python -m app.db.migrate_phase2 --database survey_system --apply` | 迁移 5 份问卷、24 道题、7 份答卷；再次预览变更数均为 0 | **PASS** |
 
 说明：第一次全量测试时本机 MongoDB 未启动，集成用例因 `127.0.0.1:27017` 拒绝连接而未进入业务断言；启动仅使用工作区 `.local-mongodb-data` 的项目专用实例后重新执行，最终结果为上表的 `49 passed`。该环境问题不计为业务用例失败。
 
