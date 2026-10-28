@@ -1,17 +1,28 @@
+"""Phase-two acceptance tests mapped to the eight changed requirements."""
+
 from uuid import uuid4
 
 from tests.integration.conftest import register_and_login
 
 
-def create_library_question(api, headers, title="你的年龄"):
+def unique_name(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex[:8]}"
+
+
+def create_question(api, headers, *, title="你的年龄", question_type="number"):
+    choice = question_type in {"single_choice", "multiple_choice"}
     response = api.post(
         "/api/v1/questions",
         headers=headers,
         json={
-            "type": "number",
+            "type": question_type,
             "title": title,
-            "options": [],
-            "validation": {"min_value": 0, "max_value": 120, "integer_only": True},
+            "options": [{"label": "是"}, {"label": "否"}] if choice else [],
+            "validation": (
+                {"min_value": 0, "max_value": 120, "integer_only": True}
+                if question_type == "number"
+                else {}
+            ),
             "change_note": "初始版本",
         },
     )
@@ -19,97 +30,243 @@ def create_library_question(api, headers, title="你的年龄"):
     return response.json()
 
 
-def create_survey(api, headers, title):
+def create_version(api, headers, question, *, title="你的周岁年龄"):
+    current = question["current_version"]
     response = api.post(
-        "/api/v1/surveys",
+        f"/api/v1/questions/{question['id']}/versions",
         headers=headers,
         json={
+            "type": current["type"],
             "title": title,
-            "description": "第二阶段测试",
-            "allow_anonymous": False,
-            "allow_multiple_submissions": True,
+            "options": current["options"],
+            "validation": current["validation"],
+            "parent_version_id": current["id"],
+            "change_note": "创建第二版本",
         },
     )
     assert response.status_code == 201, response.text
     return response.json()
 
 
-def test_library_versions_sharing_banks_usage_and_cross_survey_stats(api):
-    suffix = uuid4().hex[:8]
-    owner_name = f"phase2_owner_{suffix}"
-    teammate_name = f"phase2_team_{suffix}"
-    respondent_name = f"phase2_fill_{suffix}"
-    owner = register_and_login(api, owner_name)
-    teammate = register_and_login(api, teammate_name)
-    respondent = register_and_login(api, respondent_name)
+def create_survey(api, headers, title, *, multiple=True):
+    response = api.post(
+        "/api/v1/surveys",
+        headers=headers,
+        json={
+            "title": title,
+            "description": "第二阶段自动测试",
+            "allow_anonymous": False,
+            "allow_multiple_submissions": multiple,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
 
-    question = create_library_question(api, owner)
-    question_id = question["id"]
-    v1_id = question["current_version_id"]
+
+def add_from_library(api, headers, survey, question, version_id=None, *, required=True):
+    response = api.post(
+        f"/api/v1/surveys/{survey['id']}/questions/from-library",
+        headers=headers,
+        json={
+            "question_id": question["id"],
+            "question_version_id": version_id,
+            "required": required,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_requirement_1_save_and_reuse_question(api):
+    owner = register_and_login(api, unique_name("reuse_owner"))
+    question = create_question(api, owner)
+    assert question["current_version"]["validation"] == {
+        "min_value": 0,
+        "max_value": 120,
+        "integer_only": True,
+    }
+    first_survey = create_survey(api, owner, "复用问卷 A")
+    second_survey = create_survey(api, owner, "复用问卷 B")
+    first = add_from_library(api, owner, first_survey, question)
+    second = add_from_library(api, owner, second_survey, question)
+
+    assert first["question_id"] == second["question_id"] == question["id"]
+    assert first["question_version_id"] == second["question_version_id"]
+    assert first["id"] != second["id"]
+    listed = api.get("/api/v1/questions?scope=mine", headers=owner).json()["items"]
+    assert any(item["id"] == question["id"] for item in listed)
+
+
+def test_requirement_2_share_question_for_reuse(api):
+    owner = register_and_login(api, unique_name("share_owner"))
+    teammate_name = unique_name("share_team")
+    teammate = register_and_login(api, teammate_name)
+    question = create_question(api, owner, title="共享题目")
 
     shared = api.post(
-        f"/api/v1/questions/{question_id}/shares",
+        f"/api/v1/questions/{question['id']}/shares",
         headers=owner,
         json={"username": teammate_name},
     )
     assert shared.status_code == 201, shared.text
-    shared_list = api.get("/api/v1/questions?scope=shared", headers=teammate).json()
-    assert [item["id"] for item in shared_list["items"]] == [question_id]
+    shared_items = api.get("/api/v1/questions?scope=shared", headers=teammate).json()["items"]
+    assert [item["id"] for item in shared_items] == [question["id"]]
 
-    version = api.post(
-        f"/api/v1/questions/{question_id}/versions",
+    teammate_survey = create_survey(api, teammate, "同事问卷")
+    instance = add_from_library(api, teammate, teammate_survey, question)
+    assert instance["question_id"] == question["id"]
+    assert api.delete(
+        f"/api/v1/questions/{question['id']}/shares/{shared.json()['user_id']}",
         headers=owner,
-        json={
-            "type": "number",
-            "title": "你的周岁年龄",
-            "options": [],
-            "validation": {"min_value": 0, "max_value": 120, "integer_only": True},
-            "parent_version_id": v1_id,
-            "change_note": "明确为周岁",
-        },
-    )
-    assert version.status_code == 201, version.text
-    v2 = version.json()
-    assert v2["version_no"] == 2
-    history = api.get(f"/api/v1/questions/{question_id}", headers=owner).json()
-    assert [item["version_no"] for item in history["versions"]] == [2, 1]
+    ).status_code == 204
+    assert api.get(f"/api/v1/questions/{question['id']}", headers=teammate).status_code == 404
+    snapshot = api.get(
+        f"/api/v1/surveys/{teammate_survey['id']}", headers=teammate
+    ).json()["questions"][0]
+    assert snapshot["title"] == "共享题目"
 
-    restored = api.post(
-        f"/api/v1/questions/{question_id}/versions/{v1_id}/restore", headers=owner
+
+def test_requirement_3_edit_does_not_change_published_survey(api):
+    owner = register_and_login(api, unique_name("freeze_owner"))
+    respondent = register_and_login(api, unique_name("freeze_fill"))
+    question = create_question(api, owner, title="年龄")
+    old_survey = create_survey(api, owner, "去年问卷")
+    old_instance = add_from_library(api, owner, old_survey, question)
+    published = api.post(
+        f"/api/v1/surveys/{old_survey['id']}/publish", headers=owner
+    ).json()
+
+    draft_survey = create_survey(api, owner, "今年问卷")
+    draft_instance = add_from_library(api, owner, draft_survey, question)
+    updated = api.patch(
+        f"/api/v1/surveys/{draft_survey['id']}/questions/{draft_instance['id']}",
+        headers=owner,
+        json={**draft_instance, "title": "你的周岁年龄"},
     )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["version_no"] == 2
+
+    public_snapshot = api.get(
+        f"/api/v1/public/surveys/{published['slug']}", headers=respondent
+    ).json()["questions"][0]
+    assert public_snapshot["title"] == "年龄"
+    assert public_snapshot["question_version_id"] == old_instance["question_version_id"]
+    switch = api.put(
+        f"/api/v1/surveys/{old_survey['id']}/questions/{old_instance['id']}/version",
+        headers=owner,
+        json={"question_version_id": updated.json()["question_version_id"]},
+    )
+    assert switch.status_code == 409
+    assert switch.json()["code"] == "SURVEY_FROZEN"
+
+
+def test_requirement_4_version_history_and_restore(api):
+    owner = register_and_login(api, unique_name("history_owner"))
+    question = create_question(api, owner, title="题目 v1")
+    v1_id = question["current_version_id"]
+    v2 = create_version(api, owner, question, title="题目 v2")
+    restored = api.post(
+        f"/api/v1/questions/{question['id']}/versions/{v1_id}/restore", headers=owner
+    )
+
     assert restored.status_code == 201, restored.text
     assert restored.json()["version_no"] == 3
     assert restored.json()["parent_version_id"] == v1_id
+    assert restored.json()["title"] == "题目 v1"
+    history = api.get(f"/api/v1/questions/{question['id']}", headers=owner).json()
+    assert [item["version_no"] for item in history["versions"]] == [3, 2, 1]
+    assert v2["parent_version_id"] == v1_id
 
+
+def test_requirement_5_different_versions_coexist(api):
+    owner = register_and_login(api, unique_name("versions_owner"))
+    question = create_question(api, owner, title="旧题")
+    v1_id = question["current_version_id"]
+    v2 = create_version(api, owner, question, title="新题")
+    old_survey = create_survey(api, owner, "使用旧版")
+    new_survey = create_survey(api, owner, "使用新版")
+    old_instance = add_from_library(api, owner, old_survey, question, v1_id)
+    new_instance = add_from_library(api, owner, new_survey, question, v2["id"])
+
+    assert old_instance["version_no"] == 1
+    assert old_instance["title"] == "旧题"
+    assert new_instance["version_no"] == 2
+    assert new_instance["title"] == "新题"
+    assert old_instance["question_id"] == new_instance["question_id"]
+
+
+def test_requirement_6_list_question_usages(api):
+    owner = register_and_login(api, unique_name("usage_owner"))
+    question = create_question(api, owner, title="使用情况题")
+    draft_survey = create_survey(api, owner, "草稿使用")
+    published_survey = create_survey(api, owner, "发布使用")
+    add_from_library(api, owner, draft_survey, question)
+    add_from_library(api, owner, published_survey, question)
+    assert api.post(
+        f"/api/v1/surveys/{published_survey['id']}/publish", headers=owner
+    ).status_code == 200
+
+    usages = api.get(f"/api/v1/questions/{question['id']}/usages", headers=owner)
+    assert usages.status_code == 200, usages.text
+    assert usages.json()["total"] == 2
+    assert {item["survey_title"] for item in usages.json()["items"]} == {
+        "草稿使用",
+        "发布使用",
+    }
+    assert {item["survey_status"] for item in usages.json()["items"]} == {
+        "draft",
+        "published",
+    }
+
+
+def test_requirement_7_question_bank_and_default_version_update(api):
+    owner = register_and_login(api, unique_name("bank_owner"))
+    question = create_question(api, owner, title="题库题目")
+    v1_id = question["current_version_id"]
+    v2 = create_version(api, owner, question, title="题库题目新版")
     bank = api.post(
         "/api/v1/question-banks",
         headers=owner,
-        json={"name": "人口学", "description": "常用人口学题目"},
+        json={"name": "常用题库", "description": "第二阶段测试"},
     ).json()
     added = api.post(
         f"/api/v1/question-banks/{bank['id']}/items",
         headers=owner,
-        json={"question_id": question_id, "default_version_id": v2["id"]},
+        json={"question_id": question["id"], "default_version_id": v1_id},
     )
     assert added.status_code == 201, added.text
-    bank_detail = api.get(f"/api/v1/question-banks/{bank['id']}", headers=owner).json()
-    assert bank_detail["items"][0]["default_version"]["id"] == v2["id"]
+    assert added.json()["default_version"]["version_no"] == 1
 
-    first_survey = create_survey(api, owner, "年龄调查 A")
-    first_question = api.post(
-        f"/api/v1/surveys/{first_survey['id']}/questions/from-library",
+    updated = api.patch(
+        f"/api/v1/question-banks/{bank['id']}/items/{question['id']}",
         headers=owner,
-        json={"question_id": question_id, "question_version_id": v1_id, "required": True},
-    ).json()
-    second_survey = create_survey(api, teammate, "年龄调查 B")
-    second_question = api.post(
-        f"/api/v1/surveys/{second_survey['id']}/questions/from-library",
-        headers=teammate,
-        json={"question_id": question_id, "question_version_id": v2["id"], "required": True},
-    ).json()
-    assert first_question["version_no"] == 1
-    assert second_question["version_no"] == 2
+        json={"default_version_id": v2["id"]},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["default_version"]["version_no"] == 2
+    detail = api.get(f"/api/v1/question-banks/{bank['id']}", headers=owner).json()
+    assert detail["item_count"] == 1
+    assert detail["items"][0]["default_version"]["id"] == v2["id"]
 
+
+def test_requirement_8_cross_survey_question_statistics(api):
+    owner = register_and_login(api, unique_name("stats_owner"))
+    teammate_name = unique_name("stats_team")
+    teammate = register_and_login(api, teammate_name)
+    respondent = register_and_login(api, unique_name("stats_fill"))
+    question = create_question(api, owner, title="你的年龄")
+    v1_id = question["current_version_id"]
+    v2 = create_version(api, owner, question, title="你的周岁年龄")
+    assert api.post(
+        f"/api/v1/questions/{question['id']}/shares",
+        headers=owner,
+        json={"username": teammate_name},
+    ).status_code == 201
+
+    first_survey = create_survey(api, owner, "年龄问卷 A")
+    second_survey = create_survey(api, teammate, "年龄问卷 B")
+    first_question = add_from_library(api, owner, first_survey, question, v1_id)
+    second_question = add_from_library(api, teammate, second_survey, question, v2["id"])
     first_published = api.post(
         f"/api/v1/surveys/{first_survey['id']}/publish", headers=owner
     ).json()
@@ -127,61 +284,20 @@ def test_library_versions_sharing_banks_usage_and_cross_survey_stats(api):
         json={"answers": [{"question_id": second_question["id"], "value": 40}]},
     ).status_code == 201
 
-    usages = api.get(f"/api/v1/questions/{question_id}/usages", headers=owner).json()
-    assert usages["total"] == 2
-    stats = api.get(f"/api/v1/questions/{question_id}/statistics", headers=owner).json()
-    assert stats["survey_count"] == 2
-    assert stats["answered_count"] == 2
-    assert stats["overall_number"]["average"] == 30
-    assert {item["version_no"] for item in stats["version_stats"]} == {1, 2}
+    owner_stats = api.get(
+        f"/api/v1/questions/{question['id']}/statistics", headers=owner
+    ).json()
+    assert owner_stats["survey_count"] == 2
+    assert owner_stats["answered_count"] == 2
+    assert owner_stats["overall_number"]["average"] == 30
+    assert owner_stats["overall_number"]["minimum"] == 20
+    assert owner_stats["overall_number"]["maximum"] == 40
+    assert sum(item["count"] for item in owner_stats["overall_number"]["histogram"]) == 2
+    assert {item["version_no"] for item in owner_stats["version_stats"]} == {1, 2}
 
     teammate_stats = api.get(
-        f"/api/v1/questions/{question_id}/statistics", headers=teammate
+        f"/api/v1/questions/{question['id']}/statistics", headers=teammate
     ).json()
     assert teammate_stats["survey_count"] == 1
     assert teammate_stats["answered_count"] == 1
-
-    revoke = api.delete(
-        f"/api/v1/questions/{question_id}/shares/{shared.json()['user_id']}", headers=owner
-    )
-    assert revoke.status_code == 204
-    assert api.get(f"/api/v1/questions/{question_id}", headers=teammate).status_code == 404
-    assert api.get(
-        f"/api/v1/surveys/{second_survey['id']}", headers=teammate
-    ).json()["questions"][0]["title"] == "你的周岁年龄"
-
-
-def test_editing_survey_question_creates_version_without_touching_published_snapshot(api):
-    suffix = uuid4().hex[:8]
-    owner = register_and_login(api, f"phase2_edit_{suffix}")
-    respondent = register_and_login(api, f"phase2_answer_{suffix}")
-    question = create_library_question(api, owner, "年龄")
-
-    old_survey = create_survey(api, owner, "旧问卷")
-    old_instance = api.post(
-        f"/api/v1/surveys/{old_survey['id']}/questions/from-library",
-        headers=owner,
-        json={"question_id": question["id"], "required": True},
-    ).json()
-    published = api.post(f"/api/v1/surveys/{old_survey['id']}/publish", headers=owner).json()
-
-    draft_survey = create_survey(api, owner, "新问卷")
-    draft_instance = api.post(
-        f"/api/v1/surveys/{draft_survey['id']}/questions/from-library",
-        headers=owner,
-        json={"question_id": question["id"], "required": True},
-    ).json()
-    changed = {**draft_instance, "title": "你的周岁年龄"}
-    updated = api.patch(
-        f"/api/v1/surveys/{draft_survey['id']}/questions/{draft_instance['id']}",
-        headers=owner,
-        json=changed,
-    )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["version_no"] == 2
-
-    old_public = api.get(
-        f"/api/v1/public/surveys/{published['slug']}", headers=respondent
-    ).json()
-    assert old_public["questions"][0]["title"] == "年龄"
-    assert old_public["questions"][0]["question_version_id"] == old_instance["question_version_id"]
+    assert teammate_stats["overall_number"]["average"] == 40
