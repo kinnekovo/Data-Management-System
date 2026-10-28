@@ -158,7 +158,7 @@ npm run build
 | [API 说明](docs/api.md) | 接口、请求、响应、状态码和认证方式 |
 | [关键逻辑说明](docs/key-logic.md) | 跳转重放、校验、并发防重和统计聚合 |
 | [测试用例](docs/test-cases.md) | 测试步骤、输入、预期/实际输出与结果 |
-| [项目完成报告](docs/final-report.md) | 目标、设计、AI 使用、测试、问题与解决方案 |
+
 
 ## 安全与数据保护
 

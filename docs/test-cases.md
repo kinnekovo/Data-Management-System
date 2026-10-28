@@ -162,7 +162,7 @@ Set-Location backend
 | 实际结果 | 首次测试时，无法对创建的题目进行条件约束；修复后，可正常通过题目库创建题目，并在不同问卷里复用 |
 | 结果 | **PASS** |
 
-![alt text](image.png)
+![MT-01 创建并复用常用题目的测试结果](assets/mt-01-question-reuse.png)
 
 ### MT-02 共享题目给其他用户
 
@@ -175,7 +175,7 @@ Set-Location backend
 | 实际结果 | 接收者能看到并使用共享题目，在题目库里不能修改原题，将题目加入问卷后可以在问卷内灵活调整题目 |
 | 结果 | **PASS** |
 
-![alt text](image-1.png)
+![MT-02 共享题目给其他用户的测试结果](assets/mt-02-question-sharing.png)
 
 ### MT-03 验证已发布问卷不受新版本影响
 
@@ -188,7 +188,7 @@ Set-Location backend
 | 实际结果 | 与预期结果一致，版本管理显示无误 |
 | 结果 | **PASS** |
 
-![alt text](image-2.png)
+![MT-03 已发布问卷保持旧版本快照的测试结果](assets/mt-03-published-snapshot.png)
 
 ### MT-04 查看历史并恢复旧版本
 
@@ -201,7 +201,7 @@ Set-Location backend
 | 实际结果 | 与预期结果完全一致 |
 | 结果 | **PASS** |
 
-![alt text](image-3.png)
+![MT-04 查看版本历史并恢复旧版本的测试结果](assets/mt-04-version-history.png)
 
 ### MT-05 在不同问卷中选择不同版本
 
@@ -214,7 +214,7 @@ Set-Location backend
 | 实际结果 | 与预期结果完全一致，两份问卷能够正确使用同一题目的不同版本 |
 | 结果 | **PASS** |
 
-![alt text](image-4.png)
+![MT-05 不同问卷使用不同题目版本的测试结果](assets/mt-05-version-coexistence.png)
 
 ### MT-06 查看题目被哪些问卷使用
 
@@ -227,7 +227,7 @@ Set-Location backend
 | 实际结果 | 与预期完全一致，问卷B发布后，状态从草稿变为已发布 |
 | 结果 | **PASS** |
 
-![alt text](image-5.png)
+![MT-06 查看题目使用情况的测试结果](assets/mt-06-question-usages.png)
 
 ### MT-07 创建题库并更新推荐版本
 
@@ -240,7 +240,7 @@ Set-Location backend
 | 实际结果 | 与预期结果一致，题目发布新版本后可以在题库里手动同步 |
 | 结果 | **PASS** |
 
-![alt text](image-6.png)
+![MT-07 创建题库并更新推荐版本的测试结果](assets/mt-07-question-bank.png)
 
 ### MT-08 查看单题跨问卷统计
 
@@ -253,4 +253,4 @@ Set-Location backend
 | 实际结果 | 与预期结果一致，题目不同版本的数据不会混淆 |
 | 结果 | **PASS** |
 
-![alt text](image-7.png)
+![MT-08 查看单题跨问卷统计的测试结果](assets/mt-08-cross-survey-statistics.png)
